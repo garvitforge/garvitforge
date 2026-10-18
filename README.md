@@ -36,7 +36,7 @@ Made a compact LED heart keychain as an electronics mini-project.
 ### 🔧 Other Hardware & Model Projects
 I've also built several smaller engineering models and experimented with different combinations of flight controllers and drone components. I enjoy learning by assembling, testing, troubleshooting, and improving physical prototypes.
 
-## 🚀 Software & Systems in Progress
+## 🚀 Software & Systems
 
 ### 🛰️ AEGIS
 An ongoing autonomous rescue/response robotics project exploring perception, navigation, sensor integration, and real-time telemetry.
@@ -48,12 +48,10 @@ A planned simulation environment for experimenting with path planning, mapping, 
 
 **Status:** Planned.
 
-### 🌐 ReliefGrid
-A full-stack emergency resource coordination dashboard, planned as a separate portfolio project with a working web demo, backend, and database.
+### 🌐 [ReliefGrid — Emergency Resource Coordination](projects/reliefgrid/)
+A responsive dashboard prototype for incident reporting, triage, and resource visibility. Includes a Python backend, SQLite persistence, report validation, and an API. Sample records are fictional; it is not connected to emergency services.
 
-**Status:** In development.
-
-> I distinguish completed physical builds from software concepts and projects still in progress. I aim to document implementation details, testing, limitations, and future improvements honestly as each project develops.
+**Status:** Published portfolio prototype. Run instructions and deployment notes are in the project folder.
 
 ## 🧰 Tools & Areas I'm Exploring
 

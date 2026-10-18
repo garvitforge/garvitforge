@@ -7,12 +7,18 @@ import os
 import re
 import secrets
 import sqlite3
+import threading
+import time
+from base64 import b64encode
+from collections import deque
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Iterator
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.request import Request, urlopen
+from xml.sax.saxutils import escape
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -42,6 +48,120 @@ class ApiError(Exception):
         self.status = status
 
 
+class TwilioVoiceNotifier:
+    """Optional, rate-limited outbound call alerts for newly accepted reports."""
+
+    def __init__(
+        self,
+        *,
+        enabled: bool = False,
+        account_sid: str = "",
+        auth_token: str = "",
+        from_number: str = "",
+        to_number: str = "",
+        max_calls_per_hour: int = 10,
+    ) -> None:
+        self.account_sid = account_sid.strip()
+        self.auth_token = auth_token.strip()
+        self.from_number = from_number.strip()
+        self.to_number = to_number.strip()
+        self.max_calls_per_hour = max(0, max_calls_per_hour)
+        missing = [
+            name
+            for name, value in (
+                ("TWILIO_ACCOUNT_SID", self.account_sid),
+                ("TWILIO_AUTH_TOKEN", self.auth_token),
+                ("TWILIO_FROM_NUMBER", self.from_number),
+                ("RELIEFGRID_ALERT_PHONE", self.to_number),
+            )
+            if not value
+        ]
+        self.enabled = enabled and not missing
+        self._scheduled: deque[float] = deque()
+        self._lock = threading.Lock()
+        if enabled and missing:
+            LOG.warning("Voice alerts disabled; missing configuration: %s", ", ".join(missing))
+
+    @classmethod
+    def from_environment(cls) -> TwilioVoiceNotifier:
+        enabled = os.environ.get("RELIEFGRID_VOICE_ALERTS", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        try:
+            max_calls = int(os.environ.get("RELIEFGRID_MAX_CALLS_PER_HOUR", "10"))
+        except ValueError:
+            max_calls = 10
+        return cls(
+            enabled=enabled,
+            account_sid=os.environ.get("TWILIO_ACCOUNT_SID", ""),
+            auth_token=os.environ.get("TWILIO_AUTH_TOKEN", ""),
+            from_number=os.environ.get("TWILIO_FROM_NUMBER", ""),
+            to_number=os.environ.get("RELIEFGRID_ALERT_PHONE", ""),
+            max_calls_per_hour=max_calls,
+        )
+
+    def schedule(self, incident: dict[str, Any]) -> str:
+        """Queue a call without delaying report acceptance; limit spend/abuse."""
+        if not self.enabled:
+            return "disabled"
+        now = time.monotonic()
+        with self._lock:
+            while self._scheduled and now - self._scheduled[0] >= 3600:
+                self._scheduled.popleft()
+            if self.max_calls_per_hour == 0 or len(self._scheduled) >= self.max_calls_per_hour:
+                LOG.warning("Voice-alert hourly cap reached; report %s was not called", incident["code"])
+                return "rate_limited"
+            self._scheduled.append(now)
+        threading.Thread(
+            target=self.place_call,
+            args=(dict(incident),),
+            name="reliefgrid-voice-alert",
+            daemon=True,
+        ).start()
+        return "queued"
+
+    def place_call(self, incident: dict[str, Any]) -> None:
+        """Start a Twilio voice call using inline TwiML; never include report details."""
+        message = (
+            f"New ReliefGrid report {incident['code']}. "
+            f"Type {incident['kind']}. Priority {incident['severity']}. "
+            f"Area {incident['district']}. Please review the dashboard."
+        )
+        twiml = f"<Response><Say>{escape(message)}</Say></Response>"
+        endpoint = (
+            "https://api.twilio.com/2010-04-01/Accounts/"
+            f"{self.account_sid}/Calls.json"
+        )
+        body = urlencode(
+            {
+                "To": self.to_number,
+                "From": self.from_number,
+                "Twiml": twiml,
+            }
+        ).encode("utf-8")
+        authorization = b64encode(f"{self.account_sid}:{self.auth_token}".encode()).decode()
+        request = Request(
+            endpoint,
+            data=body,
+            headers={
+                "Authorization": f"Basic {authorization}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=12) as response:
+                if response.status >= 300:
+                    raise RuntimeError(f"Twilio returned HTTP {response.status}")
+            LOG.info("Voice alert initiated for report %s", incident["code"])
+        except Exception as exc:
+            # Keep notification failures from affecting report intake, and never log credentials.
+            LOG.warning("Voice alert failed for report %s: %s", incident["code"], exc)
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -60,8 +180,13 @@ def clean_text(value: Any, label: str, *, minimum: int = 1, maximum: int = 120) 
 class ReliefGridApp:
     """SQLite-backed application logic, shared by the HTTP server and tests."""
 
-    def __init__(self, database_path: str | Path = DEFAULT_DB) -> None:
+    def __init__(
+        self,
+        database_path: str | Path = DEFAULT_DB,
+        voice_notifier: TwilioVoiceNotifier | None = None,
+    ) -> None:
         self.database_path = str(database_path)
+        self.voice_notifier = voice_notifier or TwilioVoiceNotifier.from_environment()
         if self.database_path != ":memory:":
             Path(self.database_path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
         self.initialize()
@@ -222,7 +347,9 @@ class ReliefGridApp:
                 (code, kind, description, district, severity, now, now),
             )
             row = connection.execute("SELECT * FROM incidents WHERE id = ?", (cursor.lastrowid,)).fetchone()
-        return dict(row)
+        incident = dict(row)
+        incident["call_alert"] = self.voice_notifier.schedule(incident)
+        return incident
 
     def update_incident(self, incident_id: int, payload: Any) -> dict[str, Any]:
         if not isinstance(payload, dict) or not payload:

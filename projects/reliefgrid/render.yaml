@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: reliefgrid
+    runtime: python
+    plan: starter
+    buildCommand: python -m py_compile app.py
+    startCommand: python app.py
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: RELIEFGRID_DB
+        value: /var/data/reliefgrid.db
+    disk:
+      name: reliefgrid-data
+      mountPath: /var/data
+      sizeGB: 1

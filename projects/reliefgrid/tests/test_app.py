@@ -2,11 +2,23 @@ import json
 import tempfile
 import threading
 import unittest
+from datetime import datetime, timedelta
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from pathlib import Path
 
 from app import ReliefGridApp, ReliefGridHTTPServer
+
+
+class RecordingNotifier:
+    def __init__(self):
+        self.deliveries = []
+
+    def send_sms(self, incident):
+        self.deliveries.append(("sms", incident["code"]))
+
+    def place_call(self, incident):
+        self.deliveries.append(("call", incident["code"]))
 
 
 class ReliefGridApiTests(unittest.TestCase):
@@ -84,6 +96,87 @@ class ReliefGridApiTests(unittest.TestCase):
 
         reopened_app = ReliefGridApp(self.database)
         self.assertEqual(reopened_app.dashboard()["active_incidents"], 4)
+
+    def test_critical_incident_schedules_sms_and_delayed_call(self):
+        created = self.app.create_incident(
+            {
+                "kind": "Flooding",
+                "description": "Water is entering the community shelter.",
+                "district": "South District",
+                "severity": "critical",
+            }
+        )
+        with self.app.session() as connection:
+            jobs = connection.execute(
+                "SELECT channel, due_at, status FROM notification_jobs WHERE incident_id = ? ORDER BY channel",
+                (created["id"],),
+            ).fetchall()
+        by_channel = {job["channel"]: dict(job) for job in jobs}
+        self.assertEqual(set(by_channel), {"sms", "call"})
+        self.assertEqual(by_channel["sms"]["status"], "pending")
+        self.assertEqual(by_channel["sms"]["due_at"], created["created_at"])
+        sms_due = datetime.fromisoformat(by_channel["sms"]["due_at"].replace("Z", "+00:00"))
+        call_due = datetime.fromisoformat(by_channel["call"]["due_at"].replace("Z", "+00:00"))
+        self.assertEqual((call_due - sms_due).total_seconds(), 120)
+
+    def test_acknowledgement_cancels_pending_alerts(self):
+        created = self.app.create_incident(
+            {
+                "kind": "Medical",
+                "description": "First aid is needed at the shelter.",
+                "district": "Central District",
+                "severity": "critical",
+            }
+        )
+        status, _, updated = self.request(
+            f"/api/incidents/{created['id']}", method="PATCH", payload={"acknowledge": True}
+        )
+        self.assertEqual(status, 200)
+        self.assertIsNotNone(updated["acknowledged_at"])
+        with self.app.session() as connection:
+            jobs = connection.execute(
+                "SELECT channel, status FROM notification_jobs WHERE incident_id = ?", (created["id"],)
+            ).fetchall()
+        self.assertEqual({row["channel"]: row["status"] for row in jobs}, {"sms": "pending", "call": "cancelled"})
+        start = datetime.fromisoformat(created["created_at"].replace("Z", "+00:00"))
+        notifier = RecordingNotifier()
+        self.assertEqual(self.app.dispatch_due_notifications(notifier, start), 1)
+        self.assertEqual(notifier.deliveries, [("sms", created["code"])])
+
+    def test_dispatcher_sends_sms_then_calls_after_acknowledgement_window(self):
+        created = self.app.create_incident(
+            {
+                "kind": "Flooding",
+                "description": "Flood water is blocking the north access road.",
+                "district": "North District",
+                "severity": "critical",
+            }
+        )
+        start = datetime.fromisoformat(created["created_at"].replace("Z", "+00:00"))
+        notifier = RecordingNotifier()
+
+        self.assertEqual(self.app.dispatch_due_notifications(notifier, start), 1)
+        self.assertEqual(notifier.deliveries, [("sms", created["code"])])
+        self.assertEqual(self.app.dispatch_due_notifications(notifier, start + timedelta(seconds=119)), 0)
+        self.assertEqual(self.app.dispatch_due_notifications(notifier, start + timedelta(seconds=120)), 1)
+        self.assertEqual(notifier.deliveries, [("sms", created["code"]), ("call", created["code"])])
+
+    def test_raising_priority_to_critical_enqueues_alerts(self):
+        created = self.app.create_incident(
+            {
+                "kind": "Supply request",
+                "description": "Drinking water is needed at the shelter.",
+                "district": "West District",
+                "severity": "high",
+            }
+        )
+        updated = self.app.update_incident(created["id"], {"severity": "critical"})
+        self.assertEqual(updated["severity"], "critical")
+        with self.app.session() as connection:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM notification_jobs WHERE incident_id = ?", (created["id"],)
+            ).fetchone()[0]
+        self.assertEqual(count, 2)
 
     def test_invalid_report_is_rejected_without_inserting(self):
         status, _, error = self.request(

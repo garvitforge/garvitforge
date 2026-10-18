@@ -7,12 +7,15 @@ import os
 import re
 import secrets
 import sqlite3
+import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Iterator
 from urllib.parse import parse_qs, urlsplit
+
+from notifications import TwilioNotifier
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -20,6 +23,7 @@ HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "5000"))
 DEFAULT_DB = os.environ.get("RELIEFGRID_DB", str(ROOT / "reliefgrid.db"))
 MAX_BODY_BYTES = 16_384
+ACKNOWLEDGEMENT_DELAY_SECONDS = 120
 SEVERITIES = ("critical", "high", "medium", "low")
 STATUSES = ("active", "resolved")
 LOG = logging.getLogger("reliefgrid")
@@ -44,6 +48,24 @@ class ApiError(Exception):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def utc_after(value: str, seconds: int) -> str:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return (parsed + timedelta(seconds=seconds)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def enqueue_critical_alerts(connection: sqlite3.Connection, incident_id: int, now: str) -> None:
+    call_due_at = utc_after(now, ACKNOWLEDGEMENT_DELAY_SECONDS)
+    connection.executemany(
+        """INSERT OR IGNORE INTO notification_jobs
+           (incident_id, channel, due_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, 'pending', ?, ?)""",
+        (
+            (incident_id, "sms", now, now, now),
+            (incident_id, "call", call_due_at, now, now),
+        ),
+    )
 
 
 def clean_text(value: Any, label: str, *, minimum: int = 1, maximum: int = 120) -> str:
@@ -103,6 +125,22 @@ class ReliefGridApp:
                 );
                 CREATE INDEX IF NOT EXISTS incidents_status_severity
                     ON incidents(status, severity, created_at);
+                CREATE TABLE IF NOT EXISTS notification_jobs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    incident_id INTEGER NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+                    channel TEXT NOT NULL CHECK (channel IN ('sms', 'call')),
+                    due_at TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'sending', 'sent', 'failed', 'cancelled')),
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT,
+                    sent_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE (incident_id, channel)
+                );
+                CREATE INDEX IF NOT EXISTS notification_jobs_due
+                    ON notification_jobs(status, due_at);
                 CREATE TABLE IF NOT EXISTS resources (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
@@ -113,6 +151,11 @@ class ReliefGridApp:
                 );
                 """
             )
+            incident_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(incidents)").fetchall()
+            }
+            if "acknowledged_at" not in incident_columns:
+                connection.execute("ALTER TABLE incidents ADD COLUMN acknowledged_at TEXT")
             if connection.execute("SELECT COUNT(*) FROM incidents").fetchone()[0] == 0:
                 now = utc_now()
                 connection.executemany(
@@ -133,7 +176,12 @@ class ReliefGridApp:
     def health(self) -> dict[str, Any]:
         with self.session() as connection:
             connection.execute("SELECT 1").fetchone()
-        return {"ok": True, "service": "ReliefGrid", "mode": "demo"}
+        return {
+            "ok": True,
+            "service": "ReliefGrid",
+            "mode": "demo",
+            "outbound_alerts_configured": TwilioNotifier.from_environment() is not None,
+        }
 
     def dashboard(self) -> dict[str, int]:
         today = utc_now()[:10]
@@ -186,7 +234,8 @@ class ReliefGridApp:
         with self.session() as connection:
             total = connection.execute(f"SELECT COUNT(*) FROM incidents{where}", values).fetchone()[0]
             rows = connection.execute(
-                f"""SELECT id, code, kind, description, district, severity, status, created_at, updated_at
+                f"""SELECT id, code, kind, description, district, severity, status,
+                           acknowledged_at, created_at, updated_at
                     FROM incidents{where}
                     ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END,
                              CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1
@@ -221,15 +270,18 @@ class ReliefGridApp:
                    VALUES (?, ?, ?, ?, ?, 'active', ?, ?)""",
                 (code, kind, description, district, severity, now, now),
             )
+            if severity == "critical":
+                enqueue_critical_alerts(connection, cursor.lastrowid, now)
             row = connection.execute("SELECT * FROM incidents WHERE id = ?", (cursor.lastrowid,)).fetchone()
         return dict(row)
 
     def update_incident(self, incident_id: int, payload: Any) -> dict[str, Any]:
         if not isinstance(payload, dict) or not payload:
             raise ApiError("Provide a status or priority update.")
-        if set(payload) - {"status", "severity"}:
-            raise ApiError("Only status and priority can be updated.")
+        if set(payload) - {"status", "severity", "acknowledge"}:
+            raise ApiError("Only status, priority, and acknowledgement can be updated.")
         updates: dict[str, str] = {}
+        acknowledge = False
         if "status" in payload:
             if payload["status"] not in STATUSES:
                 raise ApiError("Status must be active or resolved.")
@@ -238,15 +290,122 @@ class ReliefGridApp:
             if payload["severity"] not in SEVERITIES:
                 raise ApiError("Choose a valid priority.")
             updates["severity"] = payload["severity"]
-        updates["updated_at"] = utc_now()
-        assignments = ", ".join(f"{column} = ?" for column in updates)
-        values = [*updates.values(), incident_id]
+        if "acknowledge" in payload:
+            if payload["acknowledge"] is not True:
+                raise ApiError("Acknowledgement must be true.")
+            acknowledge = True
         with self.session() as connection:
+            current = connection.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,)).fetchone()
+            if current is None:
+                raise ApiError("Incident not found.", 404)
+            now = utc_now()
+            if acknowledge:
+                updates["acknowledged_at"] = current["acknowledged_at"] or now
+            updates["updated_at"] = now
+            assignments = ", ".join(f"{column} = ?" for column in updates)
+            values = [*updates.values(), incident_id]
             cursor = connection.execute(f"UPDATE incidents SET {assignments} WHERE id = ?", values)
             if cursor.rowcount == 0:
                 raise ApiError("Incident not found.", 404)
+            new_status = updates.get("status", current["status"])
+            new_severity = updates.get("severity", current["severity"])
+            if acknowledge:
+                connection.execute(
+                    """UPDATE notification_jobs
+                       SET status = 'cancelled', updated_at = ?
+                       WHERE incident_id = ? AND channel = 'call' AND status = 'pending'""",
+                    (now, incident_id),
+                )
+            elif new_status != "active" or new_severity != "critical":
+                connection.execute(
+                    """UPDATE notification_jobs
+                       SET status = 'cancelled', updated_at = ?
+                       WHERE incident_id = ? AND status = 'pending'""",
+                    (now, incident_id),
+                )
+            elif (
+                new_status == "active"
+                and new_severity == "critical"
+                and (current["status"] != "active" or current["severity"] != "critical")
+            ):
+                enqueue_critical_alerts(connection, incident_id, now)
             row = connection.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,)).fetchone()
         return dict(row)
+
+    def dispatch_due_notifications(self, notifier: Any = None, now: datetime | None = None) -> int:
+        """Send due SMS/call jobs once; tests can pass a fake notifier and clock."""
+        sender = notifier if notifier is not None else TwilioNotifier.from_environment()
+        if sender is None:
+            return 0
+        current_time = now or datetime.now(timezone.utc)
+        if current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=timezone.utc)
+        now_text = current_time.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        claimed: list[dict[str, Any]] = []
+        with self.session() as connection:
+            rows = connection.execute(
+                """SELECT jobs.id AS job_id, jobs.incident_id, jobs.channel,
+                          incidents.code, incidents.kind, incidents.district,
+                          incidents.severity, incidents.status AS incident_status,
+                          incidents.acknowledged_at
+                   FROM notification_jobs AS jobs
+                   JOIN incidents ON incidents.id = jobs.incident_id
+                   WHERE jobs.status = 'pending' AND datetime(jobs.due_at) <= datetime(?)
+                   ORDER BY jobs.due_at, jobs.id
+                   LIMIT 50""",
+                (now_text,),
+            ).fetchall()
+            for row in rows:
+                if (
+                    row["incident_status"] != "active"
+                    or row["severity"] != "critical"
+                    or (row["acknowledged_at"] is not None and row["channel"] == "call")
+                ):
+                    connection.execute(
+                        """UPDATE notification_jobs SET status = 'cancelled', updated_at = ?
+                           WHERE id = ? AND status = 'pending'""",
+                        (now_text, row["job_id"]),
+                    )
+                    continue
+                result = connection.execute(
+                    """UPDATE notification_jobs
+                       SET status = 'sending', attempts = attempts + 1, updated_at = ?
+                       WHERE id = ? AND status = 'pending'""",
+                    (now_text, row["job_id"]),
+                )
+                if result.rowcount:
+                    claimed.append(dict(row))
+
+        for job in claimed:
+            try:
+                if job["channel"] == "sms":
+                    sender.send_sms(job)
+                else:
+                    sender.place_call(job)
+            except Exception as exc:
+                LOG.warning(
+                    "Outbound %s alert failed for %s (%s)",
+                    job["channel"],
+                    job["code"],
+                    type(exc).__name__,
+                )
+                with self.session() as connection:
+                    connection.execute(
+                        """UPDATE notification_jobs
+                           SET status = 'failed', last_error = 'delivery_failed', updated_at = ?
+                           WHERE id = ? AND status = 'sending'""",
+                        (utc_now(), job["job_id"]),
+                    )
+            else:
+                sent_at = utc_now()
+                with self.session() as connection:
+                    connection.execute(
+                        """UPDATE notification_jobs
+                           SET status = 'sent', sent_at = ?, last_error = NULL, updated_at = ?
+                           WHERE id = ? AND status = 'sending'""",
+                        (sent_at, sent_at, job["job_id"]),
+                    )
+        return len(claimed)
 
 
 class ReliefGridHTTPServer(ThreadingHTTPServer):
@@ -254,7 +413,28 @@ class ReliefGridHTTPServer(ThreadingHTTPServer):
 
     def __init__(self, address: tuple[str, int], app: ReliefGridApp) -> None:
         self.app = app
+        self._notification_stop = threading.Event()
+        self._notification_thread: threading.Thread | None = None
         super().__init__(address, ReliefGridRequestHandler)
+
+    def _notification_loop(self) -> None:
+        while not self._notification_stop.wait(1):
+            try:
+                self.app.dispatch_due_notifications()
+            except Exception:
+                LOG.exception("Notification dispatcher encountered an unexpected error")
+
+    def serve_forever(self, poll_interval: float = 0.5) -> None:
+        self._notification_stop.clear()
+        self._notification_thread = threading.Thread(
+            target=self._notification_loop, name="reliefgrid-notifications", daemon=True
+        )
+        self._notification_thread.start()
+        try:
+            super().serve_forever(poll_interval)
+        finally:
+            self._notification_stop.set()
+            self._notification_thread.join(timeout=3)
 
 
 class ReliefGridRequestHandler(BaseHTTPRequestHandler):

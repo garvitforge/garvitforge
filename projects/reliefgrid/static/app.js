@@ -54,6 +54,7 @@ function renderIncident(incident) {
   meta.append(make("span", "", `⌖ ${incident.district}`));
   meta.append(make("span", "", `Reported ${formatDate(incident.created_at)}`));
   meta.append(make("span", "", incident.status === "active" ? "● Active" : "✓ Resolved"));
+  if (incident.acknowledged_at) meta.append(make("span", "", `Acknowledged ${formatDate(incident.acknowledged_at)}`));
   main.append(meta);
 
   const actions = make("div", "incident-actions");
@@ -79,6 +80,26 @@ function renderIncident(incident) {
     } finally { priority.disabled = false; }
   });
   actions.append(priority);
+
+  if (incident.severity === "critical" && incident.status === "active" && !incident.acknowledged_at) {
+    const acknowledgeButton = make("button", "status-button acknowledge", "Acknowledge");
+    acknowledgeButton.type = "button";
+    acknowledgeButton.setAttribute("aria-label", `Acknowledge critical incident ${incident.code}`);
+    acknowledgeButton.addEventListener("click", async () => {
+      acknowledgeButton.disabled = true;
+      try {
+        await requestJSON(`/api/incidents/${incident.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ acknowledge: true }),
+        });
+        showToast(`${incident.code} acknowledged.`);
+        await refreshDashboard();
+      } catch (error) {
+        showToast(error.message, true);
+      } finally { acknowledgeButton.disabled = false; }
+    });
+    actions.append(acknowledgeButton);
+  }
 
   const statusButton = make("button", `status-button ${incident.status === "active" ? "resolve" : "reopen"}`, incident.status === "active" ? "Resolve" : "Reopen");
   statusButton.type = "button";

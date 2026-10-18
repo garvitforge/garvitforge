@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101b2b">
+  <meta name="description" content="ReliefGrid is a portfolio demo for incident reporting, triage, and resource visibility.">
+  <title>ReliefGrid — Response coordination demo</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to dashboard</a>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="ReliefGrid home">
+      <span class="brand-mark" aria-hidden="true">✳</span>
+      <span>relief<span class="brand-accent">grid</span><small>RESPONSE COORDINATION DEMO</small></span>
+    </a>
+    <span class="demo-label"><span class="demo-dot"></span> DEMO · FICTIONAL DATA</span>
+  </header>
+
+  <main id="main" class="shell">
+    <section class="hero" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">INCIDENT INTAKE · TRIAGE · RESOURCE VISIBILITY</p>
+        <h1 id="page-title">One clear view.<br>Better coordination.</h1>
+        <p class="hero-copy">A small operations dashboard that turns incoming reports into a trackable queue and keeps illustrative supply levels in view.</p>
+      </div>
+      <button class="button button-primary" id="open-report" type="button">＋ Report an incident</button>
+    </section>
+
+    <section class="stats" aria-label="Dashboard summary">
+      <article class="stat-card"><span class="stat-label">Active incidents</span><strong id="stat-active" class="stat-value">—</strong><span class="stat-foot">Open in the queue</span></article>
+      <article class="stat-card"><span class="stat-label">Critical priority</span><strong id="stat-critical" class="stat-value accent">—</strong><span class="stat-foot">Active reports needing attention</span></article>
+      <article class="stat-card"><span class="stat-label">Available units</span><strong id="stat-units" class="stat-value">—</strong><span class="stat-foot">Across illustrative inventory</span></article>
+      <article class="stat-card"><span class="stat-label">Resolved</span><strong id="stat-resolved" class="stat-value">—</strong><span class="stat-foot">Reports marked complete</span></article>
+    </section>
+
+    <section class="dashboard-grid">
+      <section class="panel incidents-panel" aria-labelledby="queue-title">
+        <div class="panel-heading">
+          <div><h2 id="queue-title">Incident queue</h2><p class="muted">Search, filter, and update report priority or status.</p></div>
+          <button class="button button-quiet" id="refresh" type="button" aria-label="Refresh dashboard">↻ Refresh</button>
+        </div>
+        <form class="filters" id="filters">
+          <label class="search-field"><span class="visually-hidden">Search reports</span><span aria-hidden="true">⌕</span><input id="search" type="search" maxlength="120" placeholder="Search reports or locations"></label>
+          <label><span class="visually-hidden">Filter by status</span><select id="status-filter"><option value="active">Active</option><option value="resolved">Resolved</option><option value="all">All reports</option></select></label>
+          <label><span class="visually-hidden">Filter by priority</span><select id="priority-filter"><option value="all">All priorities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
+          <button class="button button-quiet filter-reset" type="reset">Clear</button>
+        </form>
+        <p id="queue-count" class="queue-count" aria-live="polite"></p>
+        <div id="incident-list" class="incident-list" aria-live="polite" aria-busy="true"><p class="loading">Loading reports…</p></div>
+        <p id="incident-error" class="inline-error" role="alert" hidden></p>
+      </section>
+
+      <aside class="panel resources-panel" aria-labelledby="resources-title">
+        <div class="panel-heading">
+          <div><h2 id="resources-title">Resource readiness</h2><p class="muted">Available stock by item</p></div>
+          <span class="small-tag">ILLUSTRATIVE</span>
+        </div>
+        <div id="resource-list" class="resource-list" aria-live="polite" aria-busy="true"><p class="loading">Loading resources…</p></div>
+        <p id="resource-error" class="inline-error" role="alert" hidden></p>
+        <div class="safety-note"><strong>Demo only</strong><p>All initial incidents and inventory are fictional. This dashboard is not connected to emergency services or live feeds.</p></div>
+      </aside>
+    </section>
+
+    <footer class="footer-note"><span>ReliefGrid · Portfolio prototype</span><span>Do not enter sensitive personal information or use for real-world emergency response.</span></footer>
+  </main>
+
+  <dialog id="report-dialog" class="report-dialog" aria-labelledby="report-title">
+    <form id="report-form" class="report-form">
+      <div class="dialog-heading"><div><p class="eyebrow">NEW REPORT</p><h2 id="report-title">Report an incident</h2></div><button class="icon-button" id="close-dialog" type="button" aria-label="Close report form">×</button></div>
+      <p class="muted">Add enough detail to help the demo triage the report. Keep information fictional.</p>
+      <label class="form-field">Incident type
+        <select name="kind" required>
+          <option value="">Choose a type</option><option>Flooding</option><option>Medical</option><option>Supply request</option><option>Power outage</option><option>Fire</option><option>Other</option>
+        </select>
+      </label>
+      <label class="form-field">Priority
+        <select name="severity" required><option value="critical">Critical</option><option value="high" selected>High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+      </label>
+      <label class="form-field">What happened?
+        <textarea name="description" required minlength="8" maxlength="2000" rows="4" placeholder="Describe the situation and support needed…"></textarea>
+        <span class="field-hint">8–2,000 characters</span>
+      </label>
+      <label class="form-field">District / area
+        <input name="district" required maxlength="120" placeholder="e.g. North District">
+      </label>
+      <p id="form-error" class="inline-error" role="alert" hidden></p>
+      <div class="dialog-actions"><button class="button button-quiet" id="cancel-report" type="button">Cancel</button><button class="button button-primary" id="submit-report" type="submit">Submit report</button></div>
+    </form>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+reliefgrid.db
+reliefgrid.db-shm
+reliefgrid.db-wal
+.env

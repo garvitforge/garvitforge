@@ -3,8 +3,10 @@ services:
     name: reliefgrid
     runtime: python
     plan: starter
-    buildCommand: python -m py_compile app.py
+    rootDir: projects/reliefgrid
+    buildCommand: python -m unittest discover -s tests -v
     startCommand: python app.py
+    healthCheckPath: /api/health
     envVars:
       - key: HOST
         value: 0.0.0.0

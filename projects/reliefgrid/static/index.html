@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#101b2b">
-  <meta name="description" content="ReliefGrid is a portfolio demo for incident reporting, triage, and resource visibility.">
-  <title>ReliefGrid — Response coordination demo</title>
+  <meta name="theme-color" content="#f4f7fb">
+  <meta name="description" content="ReliefGrid coordinates incident reports, resource visibility, SMS alerts, and voice escalation.">
+  <title>ReliefGrid — Incident response, coordinated</title>
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/app.js" defer></script>
 </head>
@@ -13,34 +13,97 @@
   <a class="skip-link" href="#main">Skip to dashboard</a>
   <header class="topbar">
     <a class="brand" href="/" aria-label="ReliefGrid home">
-      <span class="brand-mark" aria-hidden="true">✳</span>
-      <span>relief<span class="brand-accent">grid</span><small>RESPONSE COORDINATION DEMO</small></span>
+      <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+      <span>relief<span class="brand-accent">grid</span><small>INCIDENT RESPONSE PLATFORM</small></span>
     </a>
-    <span class="demo-label"><span class="demo-dot"></span> DEMO · FICTIONAL DATA</span>
+    <div class="topbar-status">
+      <span class="demo-label"><span class="demo-dot"></span> DEMO · FICTIONAL DATA</span>
+      <div id="alert-status" class="alert-status" role="status" aria-live="polite">
+        <span class="alert-status-dot"></span>
+        <span class="alert-status-copy"><strong id="alert-status-title">Checking alert setup</strong><small id="alert-status-detail">SMS + voice escalation</small></span>
+      </div>
+    </div>
   </header>
 
   <main id="main" class="shell">
     <section class="hero" aria-labelledby="page-title">
-      <div>
-        <p class="eyebrow">INCIDENT INTAKE · TRIAGE · RESOURCE VISIBILITY</p>
-        <h1 id="page-title">One clear view.<br>Better coordination.</h1>
-        <p class="hero-copy">A small operations dashboard that turns incoming reports into a trackable queue and keeps illustrative supply levels in view.</p>
+      <div class="hero-copy-block">
+        <p class="eyebrow"><span class="eyebrow-line"></span> RESPONSE OPERATIONS · FIELD READY</p>
+        <h1 id="page-title">Every report.<br><span>One response.</span></h1>
+        <p class="hero-copy">Turn incoming incidents into clear next steps. Track urgency, coordinate available resources, and keep responders in the loop.</p>
+        <div class="hero-actions">
+          <button class="button button-primary" id="open-report" type="button"><span aria-hidden="true">＋</span> Report an incident</button>
+          <a class="button button-secondary" href="#incident-queue"><span aria-hidden="true">↘</span> View response queue</a>
+        </div>
+        <div class="hero-footnote"><span class="tiny-check" aria-hidden="true">✓</span> Fictional demo data · not connected to emergency services</div>
       </div>
-      <button class="button button-primary" id="open-report" type="button">＋ Report an incident</button>
+      <aside class="escalation-card" aria-label="Critical incident alert workflow">
+        <div class="escalation-card-top">
+          <span class="escalation-icon" aria-hidden="true">↗</span>
+          <span class="workflow-label">CRITICAL INCIDENT WORKFLOW</span>
+          <span class="workflow-pulse" aria-hidden="true"></span>
+        </div>
+        <h2>When urgency rises,<br>response keeps moving.</h2>
+        <ol class="workflow">
+          <li class="workflow-step">
+            <span class="workflow-marker">01</span>
+            <span class="workflow-content"><strong>SMS responders</strong><small>Sent when a critical report is created</small></span>
+            <span class="workflow-state">NOW</span>
+          </li>
+          <li class="workflow-step">
+            <span class="workflow-marker">02</span>
+            <span class="workflow-content"><strong>Voice escalation</strong><small>Calls after 2 minutes if not acknowledged</small></span>
+            <span class="workflow-state">+2 MIN</span>
+          </li>
+          <li class="workflow-step">
+            <span class="workflow-marker">03</span>
+            <span class="workflow-content"><strong>One-tap acknowledgement</strong><small>Stops the pending escalation call</small></span>
+            <span class="workflow-state">TEAM</span>
+          </li>
+        </ol>
+        <p class="workflow-note"><span class="workflow-note-dot"></span> Twilio setup required to deliver real alerts</p>
+      </aside>
     </section>
 
     <section class="stats" aria-label="Dashboard summary">
-      <article class="stat-card"><span class="stat-label">Active incidents</span><strong id="stat-active" class="stat-value">—</strong><span class="stat-foot">Open in the queue</span></article>
-      <article class="stat-card"><span class="stat-label">Critical priority</span><strong id="stat-critical" class="stat-value accent">—</strong><span class="stat-foot">Active reports needing attention</span></article>
-      <article class="stat-card"><span class="stat-label">Available units</span><strong id="stat-units" class="stat-value">—</strong><span class="stat-foot">Across illustrative inventory</span></article>
-      <article class="stat-card"><span class="stat-label">Resolved</span><strong id="stat-resolved" class="stat-value">—</strong><span class="stat-foot">Reports marked complete</span></article>
+      <article class="stat-card"><span class="stat-icon stat-icon-blue" aria-hidden="true">↗</span><span class="stat-label">Active incidents</span><strong id="stat-active" class="stat-value">—</strong><span class="stat-foot">Open in the response queue</span></article>
+      <article class="stat-card"><span class="stat-icon stat-icon-red" aria-hidden="true">!</span><span class="stat-label">Critical priority</span><strong id="stat-critical" class="stat-value accent">—</strong><span class="stat-foot">Need immediate attention</span></article>
+      <article class="stat-card"><span class="stat-icon stat-icon-green" aria-hidden="true">✓</span><span class="stat-label">Available units</span><strong id="stat-units" class="stat-value">—</strong><span class="stat-foot">Across illustrative inventory</span></article>
+      <article class="stat-card"><span class="stat-icon stat-icon-slate" aria-hidden="true">✓</span><span class="stat-label">Resolved</span><strong id="stat-resolved" class="stat-value">—</strong><span class="stat-foot">Reports marked complete</span></article>
+    </section>
+
+    <section class="features" aria-labelledby="features-title">
+      <div class="section-heading">
+        <div><p class="section-kicker">RESPONSE TOOLKIT</p><h2 id="features-title">From first alert to follow-through</h2></div>
+        <p class="section-summary">Built to make the next action clear, even when the situation changes quickly.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card feature-card-sms">
+          <div class="feature-card-top"><span class="feature-icon" aria-hidden="true">✉</span><span class="feature-number">01 / NOTIFY</span></div>
+          <h3>Critical SMS alerts</h3>
+          <p>Send a concise incident summary to your configured responder list as soon as a critical report arrives.</p>
+          <span id="alert-feature-status" class="feature-foot"><span class="feature-foot-dot"></span> Checking Twilio setup</span>
+        </article>
+        <article class="feature-card feature-card-call">
+          <div class="feature-card-top"><span class="feature-icon" aria-hidden="true">☎</span><span class="feature-number">02 / ESCALATE</span></div>
+          <h3>Automated voice calls</h3>
+          <p>If no one acknowledges the report, ReliefGrid schedules a voice call after a two-minute response window.</p>
+          <span class="feature-foot"><span class="feature-foot-dot"></span> Voice-capable Twilio number required</span>
+        </article>
+        <article class="feature-card feature-card-ack">
+          <div class="feature-card-top"><span class="feature-icon" aria-hidden="true">✓</span><span class="feature-number">03 / COORDINATE</span></div>
+          <h3>Acknowledge and act</h3>
+          <p>Responders can acknowledge a critical incident from the queue to stop its pending escalation call.</p>
+          <span class="feature-foot"><span class="feature-foot-dot"></span> Visible response state</span>
+        </article>
+      </div>
     </section>
 
     <section class="dashboard-grid">
-      <section class="panel incidents-panel" aria-labelledby="queue-title">
+      <section class="panel incidents-panel" id="incident-queue" aria-labelledby="queue-title">
         <div class="panel-heading">
-          <div><h2 id="queue-title">Incident queue</h2><p class="muted">Search, filter, and update report priority or status.</p></div>
-          <button class="button button-quiet" id="refresh" type="button" aria-label="Refresh dashboard">↻ Refresh</button>
+          <div><p class="section-kicker">LIVE OPERATIONS</p><h2 id="queue-title">Incident response queue</h2><p class="muted">Search, filter, acknowledge, and update active reports.</p></div>
+          <button class="button button-quiet refresh-button" id="refresh" type="button" aria-label="Refresh dashboard"><span aria-hidden="true">↻</span> Refresh</button>
         </div>
         <form class="filters" id="filters">
           <label class="search-field"><span class="visually-hidden">Search reports</span><span aria-hidden="true">⌕</span><input id="search" type="search" maxlength="120" placeholder="Search reports or locations"></label>
@@ -55,12 +118,12 @@
 
       <aside class="panel resources-panel" aria-labelledby="resources-title">
         <div class="panel-heading">
-          <div><h2 id="resources-title">Resource readiness</h2><p class="muted">Available stock by item</p></div>
-          <span class="small-tag">ILLUSTRATIVE</span>
+          <div><p class="section-kicker">SUPPLY OVERVIEW</p><h2 id="resources-title">Resource readiness</h2><p class="muted">Available stock by item</p></div>
+          <span class="small-tag">DEMO DATA</span>
         </div>
         <div id="resource-list" class="resource-list" aria-live="polite" aria-busy="true"><p class="loading">Loading resources…</p></div>
         <p id="resource-error" class="inline-error" role="alert" hidden></p>
-        <div class="safety-note"><strong>Demo only · optional alert escalation</strong><p>With Twilio configured, new critical reports send an SMS to the responder list and place a voice call after two minutes if the report is not acknowledged. Alerts are off by default; this dashboard is not an emergency service.</p></div>
+        <div class="safety-note"><span class="safety-icon" aria-hidden="true">i</span><div><strong>Demo environment</strong><p>Alerts are disabled until Twilio is configured. This dashboard is not an emergency service and should not be used for real incidents.</p></div></div>
       </aside>
     </section>
 

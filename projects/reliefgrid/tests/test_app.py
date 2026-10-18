@@ -236,12 +236,17 @@ class ReliefGridApiTests(unittest.TestCase):
         status, headers, body = self.request("/")
         self.assertEqual(status, 200)
         self.assertIn(b"ReliefGrid", body)
+        self.assertIn(b"Critical SMS alerts", body)
+        self.assertIn(b"Automated voice calls", body)
+        self.assertIn(b"Acknowledge and act", body)
+        self.assertIn(b"alert-status", body)
         self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
         self.assertIn("default-src 'self'", headers.get("Content-Security-Policy"))
         status, headers, body = self.request("/static/app.js")
         self.assertEqual(status, 200)
         self.assertIn(b"loadIncidents", body)
         self.assertEqual(headers.get_content_type(), "text/javascript")
+        self.assertIn(b"Alert setup needed", body)
 
 
 if __name__ == "__main__":

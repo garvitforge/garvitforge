@@ -35,11 +35,26 @@ function formatDate(value) {
 }
 
 async function loadDashboard() {
-  const summary = await requestJSON("/api/dashboard");
+  const [summary, health] = await Promise.all([
+    requestJSON("/api/dashboard"),
+    requestJSON("/api/health").catch(() => ({ outbound_alerts_configured: false })),
+  ]);
   $("#stat-active").textContent = summary.active_incidents;
   $("#stat-critical").textContent = summary.critical_incidents;
   $("#stat-units").textContent = Number(summary.available_units).toLocaleString();
   $("#stat-resolved").textContent = summary.resolved_incidents;
+  const configured = Boolean(health.outbound_alerts_configured);
+  const alertStatus = $("#alert-status");
+  alertStatus.classList.toggle("is-ready", configured);
+  $("#alert-status-title").textContent = configured ? "Alert setup detected" : "Alert setup needed";
+  $("#alert-status-detail").textContent = configured
+    ? "Twilio settings found · delivery not tested"
+    : "SMS + voice delivery unavailable";
+  const featureStatus = $("#alert-feature-status");
+  featureStatus.classList.toggle("is-ready", configured);
+  featureStatus.lastChild.textContent = configured
+    ? "Twilio settings detected · test delivery"
+    : "Twilio setup required to deliver";
 }
 
 function renderIncident(incident) {

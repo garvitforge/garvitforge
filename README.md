@@ -1,84 +1,39 @@
 # Garvit Agarwal
 
-### Student Builder • AI • Robotics • Embedded Systems • Computer Vision
+**Student builder · Robotics · Embedded systems · Computer vision · AI**
 
-I'm a student developer and hands-on maker from India who enjoys turning ideas into working systems — especially where **software meets the physical world**.
+I turn ideas into working prototypes—from vision-guided hardware to autonomous-exploration software. I like building, testing, debugging, and documenting real systems, not just pitching concepts. Based in India.
 
-I build across software, electronics, robotics, drones, and practical automation. My projects range from Python-based computer vision to robots designed for competitive games and embedded systems that respond to real-world conditions.
+## Featured projects
 
-## 🛠️ Projects I've Built
+### [AEGIS — Autonomous Emergency Ground Intelligence System](https://github.com/garvitforge/aegis)
+[![AEGIS tests](https://github.com/garvitforge/aegis/actions/workflows/tests.yml/badge.svg)](https://github.com/garvitforge/aegis/actions/workflows/tests.yml)
 
-### 🚦 AI-Based Smart Traffic Light System
-A traffic-light prototype combining an **ESP32, camera, Arduino Uno, and Python with YOLO object detection**. The system estimates traffic density from camera input and adjusts signal timing based on detected traffic, rather than relying only on fixed timers.
+A simulation-first robotics project for partial mapping, frontier exploration, path planning, and battery-aware return-to-base decisions.
 
-**Focus:** Computer vision · YOLO · Python · ESP32 · Arduino · Adaptive traffic control
+- **v0.7.0** is on `main`; includes repeatable scenarios and JSON benchmark output.
+- CI tests Python 3.10–3.13. [Explore the code and run the demo](https://github.com/garvitforge/aegis#quick-start).
+- **Scope:** software simulation only—not a physical robot, emergency-response system, or safety-validated product.
 
-### 🌧️ Roadside Rainwater Collection & Smart Plant Irrigation
-A working model designed to collect rainwater that accumulates beside roads, store it beneath the road, and use it to water plants when soil moisture is low.
+### [ReliefGrid — Emergency Resource Coordination](projects/reliefgrid/)
+A dashboard prototype for incident reporting and resource visibility, with validated submissions, a Python API, and SQLite persistence.
 
-**Focus:** Water conservation · Soil-moisture sensing · Automation · Sustainable engineering
+- [Run it locally](projects/reliefgrid/README.md).
+- **Scope:** sample incidents and inventory are fictional. It is not connected to emergency services, production-hardened, or claimed as a live deployment.
 
-### 🤖 RoboCars & Robotics Builds
-Built robot cars and experimented with different robot designs, including a brushless-motor car that can drift. I have also built robots for **RoboSoccer**, exploring the mechanical, electronic, and control challenges involved in competitive robotics.
+## Selected builds
 
-**Focus:** Robot design · Motor control · Mechanical assembly · Prototyping · Competitive robotics
+- **Adaptive traffic-light prototype:** camera and YOLO object detection with ESP32 and Arduino Uno to estimate traffic density and adjust signal timing.
+- **Rainwater collection and smart irrigation model:** capture and store roadside runoff, then water plants when soil moisture is low.
+- **Robotics and flight:** RoboSoccer robots, a brushless-motor drift car, and FPV/conventional drone builds.
+- **Electronics:** compact LED projects, including a heart keychain.
 
-### ⚽ RoboSoccer Robots
-Designed and built robots for RoboSoccer, combining hardware assembly, movement, and control for a robot-sports setting.
+## Tools and areas I work with
 
-**Focus:** Robotics · Drive systems · Control · Iterative testing
+`Python` · `C/C++` · `YOLO / computer vision` · `ESP32` · `Arduino` · `SQLite` · `APIs` · robotics prototyping
 
-### 🚁 FPV & Drone Soccer Builds
-Built FPV and conventional drones, including FPV drones for **Drone Soccer**. My builds have used flight controllers including SpeedyBee and other FCs, with a **RadioMaster Pocket** controller and, in other builds, a FlySky controller.
+## How I build
 
-**Focus:** UAVs · FPV · Flight controllers · RC systems · Hardware integration
+**Idea → prototype → test → debug → document → improve**
 
-### 🎮 Tug-of-War-Inspired Game
-Created a game with gameplay inspired by tug-of-war, exploring interactive game mechanics and player-versus-player competition.
-
-**Focus:** Game logic · Interactive programming · Gameplay mechanics
-
-### ❤️ LED Heart Keychain
-Made a compact LED heart keychain as an electronics mini-project.
-
-**Focus:** LEDs · Basic circuits · Small-scale prototyping
-
-### 🔧 Other Hardware & Model Projects
-I've also built several smaller engineering models and experimented with different combinations of flight controllers, drone components, and robotics hardware. I enjoy learning by assembling, testing, troubleshooting, and improving physical prototypes.
-
-## 🚀 Software & Systems
-
-### 🛰️ AEGIS
-An ongoing autonomous rescue/response robotics project exploring perception, navigation, sensor integration, and real-time telemetry.
-
-**Status:** In development; features are being built and validated incrementally.
-
-### 🧠 AEGIS-Sim
-A planned simulation environment for experimenting with path planning, mapping, exploration, and obstacle avoidance before deploying algorithms to hardware.
-
-**Status:** Planned.
-
-### 🌐 [ReliefGrid — Emergency Resource Coordination](projects/reliefgrid/)
-A responsive dashboard prototype for incident reporting, triage, and resource visibility. Includes a Python backend, SQLite persistence, report validation, and an API. Sample records are fictional; it is not connected to emergency services.
-
-**Status:** Published portfolio prototype. Run instructions and deployment notes are in the project folder.
-
-## 🧰 Tools & Areas I'm Exploring
-
-- **Programming:** Python, C/C++
-- **AI & Vision:** YOLO, object detection, computer vision
-- **Embedded Systems:** ESP32, Arduino
-- **Robotics:** RoboSoccer, robot cars, sensors, motor control, automation
-- **Drones:** FPV, Drone Soccer, flight controllers, RC systems
-- **Game Development:** Interactive mechanics and game logic
-- **Web Development:** Frontend, backend, databases, APIs
-- **Engineering themes:** Sustainable systems, real-world problem solving, iterative testing
-
-## 🧭 How I Build
-
-**Idea → Prototype → Test → Debug → Improve → Document**
-
-I like projects that combine code with real hardware and solve practical problems. I'm focused on strengthening my engineering fundamentals, making my builds more reliable, and sharing clear documentation as the projects mature.
-
-📍 India  
-🚧 Building, testing, and learning one project at a time.
+I care about demonstrable behavior, repeatable tests, and clear limits—especially when simulation is involved. If you're building something useful in robotics, embedded systems, or practical AI, explore the projects or open an issue on the relevant repository.

@@ -1,82 +1,391 @@
-import json, os, sqlite3
+"""ReliefGrid: a small, simulation-only incident coordination demo."""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import secrets
+import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
-DB=os.environ.get("RELIEFGRID_DB","reliefgrid.db")
-HOST=os.environ.get("HOST","127.0.0.1")
-PORT=int(os.environ.get("PORT","5000"))
-def stamp(): return datetime.now(timezone.utc).isoformat()
-def db():
-    c=sqlite3.connect(DB,timeout=10); c.row_factory=sqlite3.Row
-    c.execute("PRAGMA foreign_keys=ON")
-    c.execute("CREATE TABLE IF NOT EXISTS incidents(id INTEGER PRIMARY KEY,code TEXT UNIQUE,kind TEXT,description TEXT,district TEXT,severity TEXT,status TEXT DEFAULT 'active',created_at TEXT,updated_at TEXT)")
-    c.execute("CREATE TABLE IF NOT EXISTS resources(id INTEGER PRIMARY KEY,name TEXT,category TEXT,available INTEGER,capacity INTEGER,location TEXT)")
-    if c.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]==0:
-        t=stamp(); c.executemany("INSERT INTO incidents(code,kind,description,district,severity,status,created_at,updated_at) VALUES(?,?,?,?,?,'active',?,?)",[(f"RG-{n}",k,d,area,s,t,t) for n,k,d,area,s in [(1042,"Flooding","Waterlogging reported near the underpass.","North District","high"),(1041,"Medical","First-aid support requested at community shelter.","Central District","critical"),(1040,"Supply request","Drinking water and dry food needed for 18 people.","East District","medium")]])
-    if c.execute("SELECT COUNT(*) FROM resources").fetchone()[0]==0:
-        c.executemany("INSERT INTO resources(name,category,available,capacity,location) VALUES(?,?,?,?,?)",[("Medical kits","medical",42,60,"Central Warehouse"),("Drinking water","water",128,180,"North Depot"),("Food packs","food",76,120,"East Depot")])
-    return c
-PAGE="""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101b2b"><title>ReliefGrid | Response operations</title><style>
-:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color:#eaf0f8;background:#0b1220}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 15% 0,#172d45 0,transparent 38%),#0b1220;min-height:100vh}.shell{max-width:1240px;margin:auto;padding:28px 22px 60px}.top{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:38px}.brand{display:flex;gap:12px;align-items:center;font-size:22px;font-weight:800;letter-spacing:-.8px}.logo{width:42px;height:42px;border-radius:14px;background:#ff9e63;color:#172334;display:grid;place-items:center;font-size:25px}.brand span{color:#ffb17d}.pill{font-size:11px;letter-spacing:1.4px;color:#9ce5c4;border:1px solid #285747;border-radius:99px;padding:9px 13px;background:#123226}.eyebrow{font-size:11px;letter-spacing:2px;color:#ffb17d;font-weight:700}.intro{display:flex;justify-content:space-between;align-items:end;gap:24px;margin-bottom:28px}.intro h1{font-size:clamp(32px,5vw,54px);letter-spacing:-2.2px;margin:12px 0 8px}.intro p{color:#9aa9bd;margin:0;max-width:620px;line-height:1.6}.btn{border:0;border-radius:12px;padding:13px 17px;background:#ff9e63;color:#1b2634;font-weight:800;cursor:pointer;white-space:nowrap}.btn:hover{filter:brightness(1.07)}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:26px 0}.stat,.panel{border:1px solid #263449;background:linear-gradient(145deg,#172335,#121c2b);border-radius:18px;padding:22px;box-shadow:0 15px 40px #0002}.stat small,.muted{color:#8f9fb4}.stat strong{display:block;font-size:36px;margin:12px 0 3px;letter-spacing:-1.2px}.stat .accent{color:#ffb17d}.layout{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(260px,.8fr);gap:16px}.panel h2{font-size:17px;margin:0 0 5px}.panel-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.tag{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#ffbb8f;background:#432d26;border-radius:7px;padding:6px 8px}.tablewrap{overflow:auto}table{border-collapse:collapse;width:100%;min-width:560px}th{text-align:left;font-size:10px;letter-spacing:1px;color:#7f91a8;font-weight:700;padding:11px 9px;border-bottom:1px solid #2b394b}td{padding:14px 9px;border-bottom:1px solid #243145;font-size:12px;color:#dbe5f1;vertical-align:top}td small{display:block;color:#91a1b6;margin-top:5px;line-height:1.5}.priority{display:inline-block;border-radius:7px;padding:5px 7px;font-size:10px;font-weight:800;text-transform:uppercase}.critical{background:#4a242c;color:#ff9aa4}.high{background:#4b3324;color:#ffc28f}.medium{background:#403c25;color:#f2df8b}.low{background:#203a4c;color:#a1d8ff}.status{color:#8de2b7;font-size:11px}.resolve{background:transparent;border:1px solid #3a4b60;border-radius:8px;color:#c4d2e2;padding:6px 8px;cursor:pointer}.side-list{display:grid;gap:12px}.resource{padding:13px 0;border-bottom:1px solid #29374a}.resource:last-child{border:0}.resource-top{display:flex;justify-content:space-between;gap:12px;font-size:12px}.bar{height:6px;background:#26364a;border-radius:99px;overflow:hidden;margin-top:10px}.bar i{display:block;height:100%;background:linear-gradient(90deg,#ff9862,#ffd08c);border-radius:99px}.disclaimer{color:#71839a;font-size:11px;line-height:1.6;margin-top:24px}.modal{display:none;position:fixed;inset:0;background:#050a12c9;place-items:center;padding:18px;z-index:3}.modal.open{display:grid}.form{width:min(560px,100%);background:#152235;border:1px solid #3a4a60;border-radius:20px;padding:24px;box-shadow:0 30px 100px #0008}.form h2{margin:0 0 6px}.form p{color:#9aa9bd;font-size:13px;margin:0 0 20px}.fields{display:grid;grid-template-columns:1fr 1fr;gap:13px}.field{display:grid;gap:7px}.field.full{grid-column:1/-1}.field label{font-size:12px;color:#c4d1e1}.field input,.field select,.field textarea{width:100%;border:1px solid #35465b;background:#0c1625;color:#eaf0f8;border-radius:10px;padding:12px;font:inherit;font-size:13px}.field textarea{min-height:90px;resize:vertical}.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.secondary{background:#263449;color:#dbe5f1;border:0;border-radius:10px;padding:12px 15px;cursor:pointer}.error{color:#ff9aa4;font-size:12px;min-height:18px;margin-top:10px}.toast{position:fixed;right:20px;bottom:20px;background:#173e31;border:1px solid #39775e;color:#b8f2d5;padding:13px 17px;border-radius:12px;z-index:5}.empty{color:#8f9fb4;text-align:center;padding:26px}@media(max-width:800px){.intro{align-items:start;flex-direction:column}.grid{grid-template-columns:1fr}.layout{grid-template-columns:1fr}.top{margin-bottom:28px}}@media(max-width:480px){.shell{padding:18px 12px 40px}.pill{display:none}.stat,.panel{padding:17px}.fields{grid-template-columns:1fr}.field.full{grid-column:auto}.intro h1{letter-spacing:-1.4px}}
-</style></head><body><main class="shell"><header class="top"><div class="brand"><div class="logo">✳</div><div>relief<span>grid</span><div style="font-size:9px;letter-spacing:2px;color:#8f9fb4;margin-top:3px">RESPONSE NETWORK</div></div></div><div class="pill">● SYSTEM DEMO</div></header><section class="intro"><div><div class="eyebrow">EMERGENCY RESPONSE INTELLIGENCE</div><h1>One clearer picture.<br>Faster response.</h1><p>A coordination dashboard for triaging incident reports, tracking supplies, and helping teams see what needs attention first.</p></div><button class="btn" id="open">＋ Report an incident</button></section><section class="grid"><article class="stat"><small>Active incidents</small><strong id="active">—</strong><small>Awaiting resolution</small></article><article class="stat"><small>Critical priority</small><strong class="accent" id="critical">—</strong><small>Needs immediate attention</small></article><article class="stat"><small>Available resource units</small><strong id="units">—</strong><small>Across tracked inventory</small></article></section><section class="layout"><article class="panel"><div class="panel-head"><div><h2>Incident queue</h2><div class="muted" style="font-size:12px;margin-top:5px">New reports appear here after they are saved.</div></div><span class="tag">Live queue</span></div><div class="tablewrap"><table><thead><tr><th>REPORT</th><th>LOCATION</th><th>PRIORITY</th><th>STATUS</th><th></th></tr></thead><tbody id="rows"><tr><td colspan="5" class="empty">Loading reports…</td></tr></tbody></table></div></article><aside class="panel"><div class="panel-head"><div><h2>Resource readiness</h2><div class="muted" style="font-size:12px;margin-top:5px">Available units by item</div></div><span class="tag">Inventory</span></div><div id="resources" class="side-list"></div><p class="disclaimer">Portfolio prototype using illustrative sample records. Not connected to emergency services. Do not use for real-world emergency coordination.</p></aside></section><p class="disclaimer">ReliefGrid · Built to demonstrate incident reporting, persistent storage, triage workflows, and resource visibility.</p></main><div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="formTitle"><form class="form" id="reportForm"><h2 id="formTitle">Report an incident</h2><p>Provide enough detail for the response team to triage the report.</p><div class="fields"><div class="field"><label for="kind">Incident type</label><select id="kind" required><option>Flooding</option><option>Medical</option><option>Supply request</option><option>Power outage</option><option>Fire</option><option>Other</option></select></div><div class="field"><label for="severity">Priority</label><select id="severity" required><option value="critical">Critical</option><option value="high" selected>High</option><option value="medium">Medium</option><option value="low">Low</option></select></div><div class="field full"><label for="description">What happened?</label><textarea id="description" minlength="8" maxlength="2000" required placeholder="Describe the situation and support needed…"></textarea></div><div class="field full"><label for="district">District / area</label><input id="district" maxlength="120" required placeholder="e.g. North District"></div></div><div class="error" id="error" role="alert" aria-live="polite"></div><div class="actions"><button type="button" class="secondary" id="cancel">Cancel</button><button class="btn" id="submit" type="submit">Submit report →</button></div></form></div><script>
-const $=s=>document.querySelector(s);const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));function toast(s){const n=document.createElement('div');n.className='toast';n.textContent=s;document.body.append(n);setTimeout(()=>n.remove(),3200)}
-async function api(url,opts){const r=await fetch(url,{headers:{'Content-Type':'application/json'},...opts});const j=await r.json();if(!r.ok)throw Error(j.error||'Request failed');return j}
-async function refresh(){const [d,inc,res]=await Promise.all([api('/api/dashboard'),api('/api/incidents'),api('/api/resources')]);$('#active').textContent=d.active_incidents;$('#critical').textContent=d.critical_incidents;$('#units').textContent=d.available_units.toLocaleString();$('#rows').innerHTML=inc.length?inc.map(i=>'<tr><td><b>'+esc(i.code)+'</b><small>'+esc(i.kind)+' · '+esc(i.description)+'</small></td><td>'+esc(i.district)+'</td><td><span class="priority '+esc(i.severity)+'">'+esc(i.severity)+'</span></td><td><span class="status">'+esc(i.status)+'</span></td><td>'+(i.status==='active'?'<button class="resolve" data-id="'+i.id+'">Resolve</button>':'')+'</td></tr>').join(''):'<tr><td colspan="5" class="empty">No reports yet. Submit the first report.</td></tr>';$('#resources').innerHTML=res.map(x=>'<div class="resource"><div class="resource-top"><b>'+esc(x.name)+'</b><span>'+x.available+' / '+x.capacity+'</span></div><div class="bar"><i style="width:'+Math.min(100,Math.round(100*x.available/Math.max(1,x.capacity)))+'%"></i></div><small class="muted">'+esc(x.location)+'</small></div>').join('')}
-$('#open').onclick=()=>{$('#error').textContent='';$('#modal').classList.add('open');$('#kind').focus()};$('#cancel').onclick=()=>$('#modal').classList.remove('open');$('#modal').addEventListener('click',e=>{if(e.target===$('#modal'))$('#modal').classList.remove('open')});$('#reportForm').addEventListener('submit',async e=>{e.preventDefault();const b=$('#submit');b.disabled=true;b.textContent='Submitting…';$('#error').textContent='';try{const x=await api('/api/incidents',{method:'POST',body:JSON.stringify({kind:$('#kind').value,severity:$('#severity').value,description:$('#description').value.trim(),district:$('#district').value.trim()})});$('#modal').classList.remove('open');$('#reportForm').reset();await refresh();toast('Report '+x.code+' saved to the incident queue.')}catch(err){$('#error').textContent=err.message}finally{b.disabled=false;b.textContent='Submit report →'}});document.addEventListener('click',async e=>{const b=e.target.closest('[data-id]');if(!b)return;b.disabled=true;try{await api('/api/incidents/'+b.dataset.id,{method:'PATCH',body:JSON.stringify({status:'resolved'})});await refresh();toast('Incident marked resolved.')}catch(err){toast(err.message)}finally{b.disabled=false}});refresh().catch(e=>toast('Could not load dashboard: '+e.message));
-</script></body></html>"""
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self,fmt,*args): print("[ReliefGrid] "+fmt%args)
-    def send(self,data,status=200,ctype="application/json; charset=utf-8"):
-        b=data.encode() if isinstance(data,str) else json.dumps(data,ensure_ascii=False).encode()
-        self.send_response(status);self.send_header("Content-Type",ctype);self.send_header("Content-Length",str(len(b)));self.send_header("Cache-Control","no-store");self.end_headers();self.wfile.write(b)
-    def body(self):
+from pathlib import Path
+from typing import Any, Iterator
+from urllib.parse import parse_qs, urlsplit
+
+ROOT = Path(__file__).resolve().parent
+STATIC = ROOT / "static"
+HOST = os.environ.get("HOST", "127.0.0.1")
+PORT = int(os.environ.get("PORT", "5000"))
+DEFAULT_DB = os.environ.get("RELIEFGRID_DB", str(ROOT / "reliefgrid.db"))
+MAX_BODY_BYTES = 16_384
+SEVERITIES = ("critical", "high", "medium", "low")
+STATUSES = ("active", "resolved")
+LOG = logging.getLogger("reliefgrid")
+
+SEED_INCIDENTS = (
+    ("RG-1042", "Flooding", "Waterlogging reported near the underpass.", "North District", "high"),
+    ("RG-1041", "Medical", "First-aid support requested at the community shelter.", "Central District", "critical"),
+    ("RG-1040", "Supply request", "Drinking water and dry food requested for 18 people.", "East District", "medium"),
+)
+SEED_RESOURCES = (
+    ("Medical kits", "medical", 42, 60, "Central Warehouse"),
+    ("Drinking water", "water", 128, 180, "North Depot"),
+    ("Food packs", "food", 76, 120, "East Depot"),
+)
+
+
+class ApiError(Exception):
+    def __init__(self, message: str, status: int = 400) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def clean_text(value: Any, label: str, *, minimum: int = 1, maximum: int = 120) -> str:
+    if not isinstance(value, str):
+        raise ApiError(f"{label} must be text.")
+    result = value.strip()
+    if len(result) < minimum:
+        raise ApiError(f"{label} must be at least {minimum} characters.")
+    if len(result) > maximum:
+        raise ApiError(f"{label} must be {maximum} characters or fewer.")
+    return result
+
+
+class ReliefGridApp:
+    """SQLite-backed application logic, shared by the HTTP server and tests."""
+
+    def __init__(self, database_path: str | Path = DEFAULT_DB) -> None:
+        self.database_path = str(database_path)
+        if self.database_path != ":memory:":
+            Path(self.database_path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
+        self.initialize()
+
+    def connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.database_path, timeout=10)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA busy_timeout = 10000")
+        return connection
+
+    @contextmanager
+    def session(self) -> Iterator[sqlite3.Connection]:
+        connection = self.connect()
         try:
-            n=int(self.headers.get("Content-Length","0"))
-            if n>20000: raise ValueError()
-            return json.loads(self.rfile.read(n) or b"{}")
-        except Exception: raise ValueError("Invalid JSON body")
-    def do_GET(self):
-        p=urlparse(self.path); c=db()
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def initialize(self) -> None:
+        connection = self.connect()
         try:
-            if p.path=="/": return self.send(PAGE,ctype="text/html; charset=utf-8")
-            if p.path=="/api/health": return self.send({"ok":True,"service":"ReliefGrid"})
-            if p.path=="/api/dashboard": return self.send({"active_incidents":c.execute("SELECT COUNT(*) FROM incidents WHERE status='active'").fetchone()[0],"critical_incidents":c.execute("SELECT COUNT(*) FROM incidents WHERE status='active' AND severity='critical'").fetchone()[0],"available_units":c.execute("SELECT COALESCE(SUM(available),0) FROM resources").fetchone()[0]})
-            if p.path=="/api/incidents":
-                q=parse_qs(p.query).get("q",[""])[0].strip()
-                rows=c.execute("SELECT * FROM incidents WHERE code LIKE ? OR kind LIKE ? OR description LIKE ? OR district LIKE ? ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,created_at DESC",tuple(["%"+q+"%"]*4)).fetchall()
-                return self.send([dict(r) for r in rows])
-            if p.path=="/api/resources": return self.send([dict(r) for r in c.execute("SELECT * FROM resources ORDER BY category,name").fetchall()])
-            return self.send({"error":"Route not found"},404)
-        finally: c.close()
-    def do_POST(self):
-        if urlparse(self.path).path!="/api/incidents": return self.send({"error":"Route not found"},404)
-        try: d=self.body()
-        except ValueError as e: return self.send({"error":str(e)},400)
-        kind=str(d.get("kind","")).strip(); desc=str(d.get("description","")).strip(); district=str(d.get("district","")).strip(); sev=d.get("severity")
-        if not kind or not district or len(desc)<8 or len(kind)>80 or len(desc)>2000 or len(district)>120 or sev not in ("low","medium","high","critical"): return self.send({"error":"Enter an incident type, description (8–2000 characters), district, and valid priority."},400)
-        c=db()
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS incidents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code TEXT NOT NULL UNIQUE,
+                    kind TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    district TEXT NOT NULL,
+                    severity TEXT NOT NULL CHECK (severity IN ('critical','high','medium','low')),
+                    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','resolved')),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS incidents_status_severity
+                    ON incidents(status, severity, created_at);
+                CREATE TABLE IF NOT EXISTS resources (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    available INTEGER NOT NULL CHECK (available >= 0),
+                    capacity INTEGER NOT NULL CHECK (capacity >= 0),
+                    location TEXT NOT NULL
+                );
+                """
+            )
+            if connection.execute("SELECT COUNT(*) FROM incidents").fetchone()[0] == 0:
+                now = utc_now()
+                connection.executemany(
+                    """INSERT INTO incidents
+                    (code, kind, description, district, severity, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, 'active', ?, ?)""",
+                    [(*incident, now, now) for incident in SEED_INCIDENTS],
+                )
+            if connection.execute("SELECT COUNT(*) FROM resources").fetchone()[0] == 0:
+                connection.executemany(
+                    "INSERT INTO resources(name, category, available, capacity, location) VALUES (?, ?, ?, ?, ?)",
+                    SEED_RESOURCES,
+                )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def health(self) -> dict[str, Any]:
+        with self.session() as connection:
+            connection.execute("SELECT 1").fetchone()
+        return {"ok": True, "service": "ReliefGrid", "mode": "demo"}
+
+    def dashboard(self) -> dict[str, int]:
+        today = utc_now()[:10]
+        with self.session() as connection:
+            active = connection.execute("SELECT COUNT(*) FROM incidents WHERE status = 'active'").fetchone()[0]
+            critical = connection.execute(
+                "SELECT COUNT(*) FROM incidents WHERE status = 'active' AND severity = 'critical'"
+            ).fetchone()[0]
+            resolved = connection.execute("SELECT COUNT(*) FROM incidents WHERE status = 'resolved'").fetchone()[0]
+            today_count = connection.execute(
+                "SELECT COUNT(*) FROM incidents WHERE substr(created_at, 1, 10) = ?", (today,)
+            ).fetchone()[0]
+            units = connection.execute("SELECT COALESCE(SUM(available), 0) FROM resources").fetchone()[0]
+        return {
+            "active_incidents": active,
+            "critical_incidents": critical,
+            "resolved_incidents": resolved,
+            "reports_today": today_count,
+            "available_units": units,
+        }
+
+    def list_incidents(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        search = query.get("q", [""])[0].strip()
+        if len(search) > 120:
+            raise ApiError("Search must be 120 characters or fewer.")
+        status = query.get("status", ["active"])[0]
+        severity = query.get("severity", ["all"])[0]
+        if status not in ("all", *STATUSES):
+            raise ApiError("Choose a valid status filter.")
+        if severity not in ("all", *SEVERITIES):
+            raise ApiError("Choose a valid priority filter.")
         try:
-            t=stamp(); n=c.execute("SELECT COALESCE(MAX(CAST(SUBSTR(code,4) AS INTEGER)),1038)+1 FROM incidents").fetchone()[0]; code="RG-"+str(n)
-            cur=c.execute("INSERT INTO incidents(code,kind,description,district,severity,status,created_at,updated_at) VALUES(?,?,?,?,?,'active',?,?)",(code,kind,desc,district,sev,t,t)); c.commit()
-            return self.send(dict(c.execute("SELECT * FROM incidents WHERE id=?",(cur.lastrowid,)).fetchone()),201)
-        except sqlite3.Error as e: c.rollback(); return self.send({"error":"Could not save report. Please retry."},500)
-        finally: c.close()
-    def do_PATCH(self):
-        m=__import__("re").fullmatch(r"/api/incidents/(\d+)",urlparse(self.path).path)
-        if not m: return self.send({"error":"Route not found"},404)
-        try: d=self.body()
-        except ValueError as e: return self.send({"error":str(e)},400)
-        if d.get("status") not in ("active","resolved"): return self.send({"error":"Status must be active or resolved"},400)
-        c=db()
+            limit = min(max(int(query.get("limit", ["100"])[0]), 1), 200)
+            offset = min(max(int(query.get("offset", ["0"])[0]), 0), 10_000)
+        except ValueError as exc:
+            raise ApiError("Limit and offset must be whole numbers.") from exc
+
+        clauses: list[str] = []
+        values: list[Any] = []
+        if status != "all":
+            clauses.append("status = ?")
+            values.append(status)
+        if severity != "all":
+            clauses.append("severity = ?")
+            values.append(severity)
+        if search:
+            clauses.append("(code LIKE ? OR kind LIKE ? OR description LIKE ? OR district LIKE ?)")
+            values.extend([f"%{search}%"] * 4)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self.session() as connection:
+            total = connection.execute(f"SELECT COUNT(*) FROM incidents{where}", values).fetchone()[0]
+            rows = connection.execute(
+                f"""SELECT id, code, kind, description, district, severity, status, created_at, updated_at
+                    FROM incidents{where}
+                    ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END,
+                             CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1
+                                           WHEN 'medium' THEN 2 ELSE 3 END,
+                             updated_at DESC
+                    LIMIT ? OFFSET ?""",
+                [*values, limit, offset],
+            ).fetchall()
+        return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": offset}
+
+    def list_resources(self) -> list[dict[str, Any]]:
+        with self.session() as connection:
+            rows = connection.execute(
+                "SELECT id, name, category, available, capacity, location FROM resources ORDER BY category, name"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def create_incident(self, payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ApiError("Report must be a JSON object.")
+        kind = clean_text(payload.get("kind"), "Incident type", maximum=80)
+        description = clean_text(payload.get("description"), "Description", minimum=8, maximum=2000)
+        district = clean_text(payload.get("district"), "District / area", maximum=120)
+        severity = payload.get("severity")
+        if severity not in SEVERITIES:
+            raise ApiError("Choose a valid priority.")
+        now = utc_now()
+        code = f"RG-{secrets.token_hex(3).upper()}"
+        with self.session() as connection:
+            cursor = connection.execute(
+                """INSERT INTO incidents(code, kind, description, district, severity, status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, 'active', ?, ?)""",
+                (code, kind, description, district, severity, now, now),
+            )
+            row = connection.execute("SELECT * FROM incidents WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        return dict(row)
+
+    def update_incident(self, incident_id: int, payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, dict) or not payload:
+            raise ApiError("Provide a status or priority update.")
+        if set(payload) - {"status", "severity"}:
+            raise ApiError("Only status and priority can be updated.")
+        updates: dict[str, str] = {}
+        if "status" in payload:
+            if payload["status"] not in STATUSES:
+                raise ApiError("Status must be active or resolved.")
+            updates["status"] = payload["status"]
+        if "severity" in payload:
+            if payload["severity"] not in SEVERITIES:
+                raise ApiError("Choose a valid priority.")
+            updates["severity"] = payload["severity"]
+        updates["updated_at"] = utc_now()
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        values = [*updates.values(), incident_id]
+        with self.session() as connection:
+            cursor = connection.execute(f"UPDATE incidents SET {assignments} WHERE id = ?", values)
+            if cursor.rowcount == 0:
+                raise ApiError("Incident not found.", 404)
+            row = connection.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,)).fetchone()
+        return dict(row)
+
+
+class ReliefGridHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, address: tuple[str, int], app: ReliefGridApp) -> None:
+        self.app = app
+        super().__init__(address, ReliefGridRequestHandler)
+
+
+class ReliefGridRequestHandler(BaseHTTPRequestHandler):
+    server: ReliefGridHTTPServer
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        LOG.info("%s - %s", self.address_string(), fmt % args)
+
+    def _headers(self, content_type: str, length: int) -> None:
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(length))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; "
+            "style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+        )
+
+    def _send_bytes(self, data: bytes, status: int, content_type: str) -> None:
+        self.send_response(status)
+        self._headers(content_type, len(data))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _send_json(self, data: Any, status: int = 200) -> None:
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self._send_bytes(body, status, "application/json; charset=utf-8")
+
+    def _read_json(self) -> Any:
+        if "application/json" not in self.headers.get("Content-Type", "").lower():
+            raise ApiError("Content-Type must be application/json.", 415)
         try:
-            cur=c.execute("UPDATE incidents SET status=?,updated_at=? WHERE id=?",(d["status"],stamp(),int(m.group(1))));c.commit()
-            if not cur.rowcount:return self.send({"error":"Incident not found"},404)
-            return self.send(dict(c.execute("SELECT * FROM incidents WHERE id=?",(int(m.group(1)),)).fetchone()))
-        finally:c.close()
-def main():
-    c=db();c.commit();c.close()
-    server=ThreadingHTTPServer((HOST,PORT),Handler);print("ReliefGrid listening on %s:%s"%(HOST,PORT))
-    try:server.serve_forever()
-    except KeyboardInterrupt:pass
-    finally:server.server_close()
-if __name__=="__main__":main()
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as exc:
+            raise ApiError("Invalid Content-Length header.") from exc
+        if length < 0 or length > MAX_BODY_BYTES:
+            raise ApiError("Request body is too large.", 413)
+        try:
+            return json.loads(self.rfile.read(length) or b"{}")
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise ApiError("Request body must contain valid JSON.") from exc
+
+    def _static(self, filename: str, content_type: str) -> None:
+        try:
+            data = (STATIC / filename).read_bytes()
+        except OSError:
+            self._send_json({"error": "Static asset not found."}, 404)
+            return
+        self._send_bytes(data, 200, content_type)
+
+    def do_GET(self) -> None:
+        parsed = urlsplit(self.path)
+        path = parsed.path
+        try:
+            if path == "/":
+                self._static("index.html", "text/html; charset=utf-8")
+            elif path == "/static/app.css":
+                self._static("app.css", "text/css; charset=utf-8")
+            elif path == "/static/app.js":
+                self._static("app.js", "text/javascript; charset=utf-8")
+            elif path == "/api/health":
+                self._send_json(self.server.app.health())
+            elif path == "/api/dashboard":
+                self._send_json(self.server.app.dashboard())
+            elif path == "/api/incidents":
+                self._send_json(self.server.app.list_incidents(parse_qs(parsed.query)))
+            elif path == "/api/resources":
+                self._send_json(self.server.app.list_resources())
+            else:
+                self._send_json({"error": "Route not found."}, 404)
+        except ApiError as exc:
+            self._send_json({"error": str(exc)}, exc.status)
+        except sqlite3.Error:
+            LOG.exception("Database read failed")
+            self._send_json({"error": "The database could not complete the request."}, 500)
+
+    def do_POST(self) -> None:
+        if urlsplit(self.path).path != "/api/incidents":
+            self._send_json({"error": "Route not found."}, 404)
+            return
+        try:
+            incident = self.server.app.create_incident(self._read_json())
+            self._send_json(incident, 201)
+        except ApiError as exc:
+            self._send_json({"error": str(exc)}, exc.status)
+        except sqlite3.Error:
+            LOG.exception("Incident create failed")
+            self._send_json({"error": "The report could not be saved. Please retry."}, 500)
+
+    def do_PATCH(self) -> None:
+        match = re.fullmatch(r"/api/incidents/(\d+)", urlsplit(self.path).path)
+        if not match:
+            self._send_json({"error": "Route not found."}, 404)
+            return
+        try:
+            incident = self.server.app.update_incident(int(match.group(1)), self._read_json())
+            self._send_json(incident)
+        except ApiError as exc:
+            self._send_json({"error": str(exc)}, exc.status)
+        except sqlite3.Error:
+            LOG.exception("Incident update failed")
+            self._send_json({"error": "The report could not be updated. Please retry."}, 500)
+
+    def do_OPTIONS(self) -> None:
+        self._send_json({"error": "Cross-origin requests are not supported."}, 405)
+
+    def do_DELETE(self) -> None:
+        self._send_json({"error": "Method not allowed."}, 405)
+
+    def do_PUT(self) -> None:
+        self._send_json({"error": "Method not allowed."}, 405)
+
+
+def create_server(host: str = HOST, port: int = PORT, database_path: str | Path = DEFAULT_DB) -> ReliefGridHTTPServer:
+    return ReliefGridHTTPServer((host, port), ReliefGridApp(database_path))
+
+
+def main() -> None:
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+    server = create_server()
+    LOG.info("ReliefGrid demo listening at http://%s:%s", *server.server_address)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        LOG.info("Shutting down")
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()

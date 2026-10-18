@@ -4,12 +4,12 @@
 
 I'm a student developer and hands-on maker from India who enjoys turning ideas into working systems — especially where **software meets the physical world**.
 
-I build across software, electronics, robotics, drones, and practical automation. My projects range from Python-based computer vision to embedded systems that respond to real-world conditions.
+I build across software, electronics, robotics, drones, and practical automation. My projects range from Python-based computer vision to robots designed for competitive games and embedded systems that respond to real-world conditions.
 
 ## 🛠️ Projects I've Built
 
 ### 🚦 AI-Based Smart Traffic Light System
-A traffic-light prototype combining an **ESP32, camera, Arduino Uno, and Python with YOLO object detection**. The system estimates traffic density from camera input and adjusts signal timing based on the detected traffic, rather than relying only on fixed timers.
+A traffic-light prototype combining an **ESP32, camera, Arduino Uno, and Python with YOLO object detection**. The system estimates traffic density from camera input and adjusts signal timing based on detected traffic, rather than relying only on fixed timers.
 
 **Focus:** Computer vision · YOLO · Python · ESP32 · Arduino · Adaptive traffic control
 
@@ -18,15 +18,25 @@ A working model designed to collect rainwater that accumulates beside roads, sto
 
 **Focus:** Water conservation · Soil-moisture sensing · Automation · Sustainable engineering
 
-### 🚁 FPV & Custom Drone Builds
-Built FPV and conventional drones using flight controllers including SpeedyBee and other FCs, with a **RadioMaster Pocket** controller and, in other builds, a FlySky controller. These projects gave me hands-on experience with drone assembly and hardware integration.
+### 🤖 RoboCars & Robotics Builds
+Built robot cars and experimented with different robot designs, including a brushless-motor car that can drift. I have also built robots for **RoboSoccer**, exploring the mechanical, electronic, and control challenges involved in competitive robotics.
 
-**Focus:** UAVs · Flight controllers · RC systems · Electronics integration
+**Focus:** Robot design · Motor control · Mechanical assembly · Prototyping · Competitive robotics
 
-### 🏎️ Brushless-Motor Drift Robot Car
-Built a robot car powered by brushless motors, designed for fast movement and drifting.
+### ⚽ RoboSoccer Robots
+Designed and built robots for RoboSoccer, combining hardware assembly, movement, and control for a robot-sports setting.
 
-**Focus:** Motor control · Robotics · Mechanical assembly · Prototyping
+**Focus:** Robotics · Drive systems · Control · Iterative testing
+
+### 🚁 FPV & Drone Soccer Builds
+Built FPV and conventional drones, including FPV drones for **Drone Soccer**. My builds have used flight controllers including SpeedyBee and other FCs, with a **RadioMaster Pocket** controller and, in other builds, a FlySky controller.
+
+**Focus:** UAVs · FPV · Flight controllers · RC systems · Hardware integration
+
+### 🎮 Tug-of-War-Inspired Game
+Created a game with gameplay inspired by tug-of-war, exploring interactive game mechanics and player-versus-player competition.
+
+**Focus:** Game logic · Interactive programming · Gameplay mechanics
 
 ### ❤️ LED Heart Keychain
 Made a compact LED heart keychain as an electronics mini-project.
@@ -34,7 +44,7 @@ Made a compact LED heart keychain as an electronics mini-project.
 **Focus:** LEDs · Basic circuits · Small-scale prototyping
 
 ### 🔧 Other Hardware & Model Projects
-I've also built several smaller engineering models and experimented with different combinations of flight controllers and drone components. I enjoy learning by assembling, testing, troubleshooting, and improving physical prototypes.
+I've also built several smaller engineering models and experimented with different combinations of flight controllers, drone components, and robotics hardware. I enjoy learning by assembling, testing, troubleshooting, and improving physical prototypes.
 
 ## 🚀 Software & Systems
 
@@ -58,8 +68,9 @@ A responsive dashboard prototype for incident reporting, triage, and resource vi
 - **Programming:** Python, C/C++
 - **AI & Vision:** YOLO, object detection, computer vision
 - **Embedded Systems:** ESP32, Arduino
-- **Robotics:** Sensors, motor control, automation, prototyping
-- **Drones:** FPV builds, flight controllers, RC systems
+- **Robotics:** RoboSoccer, robot cars, sensors, motor control, automation
+- **Drones:** FPV, Drone Soccer, flight controllers, RC systems
+- **Game Development:** Interactive mechanics and game logic
 - **Web Development:** Frontend, backend, databases, APIs
 - **Engineering themes:** Sustainable systems, real-world problem solving, iterative testing
 
